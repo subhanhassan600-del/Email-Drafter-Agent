@@ -42,7 +42,7 @@ class EmailTool(BaseTool):
                     "stream": False,
                     "format": "json"
                 },
-                timeout=40 # Email generation thoda waqt le sakti hai
+                timeout=120 # Email generation thoda waqt le sakti hai
             )
 
             response.raise_for_status()

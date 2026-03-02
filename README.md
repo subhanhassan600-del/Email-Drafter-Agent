@@ -1,22 +1,26 @@
 # Email Drafter Agent
 
-A simple command‑line agent that drafts professional emails for you based on a natural language description of your situation. It uses a lightweight tool architecture, with separate components for intent extraction, tone analysis, and final email generation.
+A web‑powered AI assistant that drafts professional emails for you based on a natural language description of your situation. While a minimal CLI entry point exists, the primary interaction is through a browser‑based dashboard. The system uses a lightweight tool architecture with separate components for intent extraction, tone analysis, and final email generation.
 
 The agents rely on a locally‑running Ollama `llama3` model (or another compatible LLM) via HTTP requests and the [Google ADK](https://pypi.org/project/google-adk) `BaseTool` as a helper class.
 
 ## 🛠️ Project Structure
 
 ```
-requirements.txt
-run.py                # entry point
-agent/
-    main_agent.py     # orchestrates the tools
-    intent_tool.py    # detects situation/goal/emotion
-    tone_tool.py      # classifies tone
-    email_tool.py     # produces the email JSON
-memory/               # session data (optional)
-# session_manager.py    # helper for persisting conversations (may not be present)
-session_store.json    # storage file where generated emails are saved
+email-drafter-agent/
+├── agent/                  # AI logic
+│   ├── __init__.py         # makes the folder a Python package
+│   ├── main_agent.py       # coordinator logic
+│   ├── intent_tool.py      # tool 1: extract situation/goal/emotion
+│   ├── tone_tool.py        # tool 2: classify tone
+│   └── email_tool.py       # tool 3: generate email JSON
+├── memory/                 # storage logic
+│   ├── __init__.py
+│   ├── session_manager.py  # read/write logic for session store
+│   └── session_store.json  # data file holding previous emails
+├── main.py                 # FastAPI & WebSocket server
+├── index.html              # user interface (frontend)
+└── run.py                  # CLI testing (legacy/alternative interface)
 ```
 
 ## 🚀 Getting Started
@@ -30,7 +34,7 @@ session_store.json    # storage file where generated emails are saved
    source venv/bin/activate
    ```
 
-2. **Install dependencies**:
+2. **Install the Python dependencies**:
 
    ```bash
    pip install -r requirements.txt
@@ -44,40 +48,36 @@ session_store.json    # storage file where generated emails are saved
 
    Ensure the model is reachable at `http://localhost:11434/api/generate`.
 
-4. **Start the agent**:
+4. **Start the web server**:
 
    ```bash
-   python run.py
+   uvicorn main:app --reload
    ```
 
-   Enter a description of the situation when prompted and see the generated email.
+   Visit `http://localhost:8000/` in your browser to access the UI and generate emails interactively.
+
+> (A CLI mode is still available via `python run.py` for quick testing, but the web interface is the preferred workflow.)
 
 ## ✅ Features
 
+- Browser dashboard with textarea input and live results
 - Intent extraction (situation, emotion, goal)
 - Tone analysis (happy, sad, angry, etc.)
 - JSON‑formatted email output with subject, body, and closing
+- Session storage of past drafts
 - Modular tools for easy customization
 
 ## ✍️ Example
 
-```
-Describe the situation:
-> I need to ask my manager for a day off next week because of a dentist appointment.
+### Web UI Workflow
 
---- GENERATED EMAIL ---
+1. Start the server (`uvicorn main:app --reload`) and open `http://localhost:8000/`.
+2. Type your situation in the textarea and click **Generate Professional Email**.
+3. The generated subject, body, and closing will appear instantly on the page; use the “Copy All” button to grab the full message.
 
-Subject: Request for Personal Day
+> Emails are also saved automatically to `memory/session_store.json` for later review.
 
-Hello [Manager Name],
-
-I hope you're doing well. I'm writing to request a personal day on [date] next week due to a dentist appointment I have scheduled. I'll ensure all of my tasks are covered and will be available by phone if anything urgent comes up.
-
-Thank you for your understanding.
-
-Best regards,
-[Your Name]
-```
+*(A CLI test mode is still possible with `python run.py`, but the browser dashboard is the main experience.)
 
 ## 📁 Session Memory
 

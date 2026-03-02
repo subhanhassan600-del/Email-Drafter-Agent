@@ -32,7 +32,7 @@ class ToneTool(BaseTool):
                     "stream": False,
                     "format": "json"
                 },
-                timeout=30
+                timeout=120
             )
             
             response.raise_for_status()

@@ -31,7 +31,7 @@ class IntentTool(BaseTool):
                     "stream": False,
                     "format": "json"   # Ollama ab sirf JSON dega
                 },
-                timeout=30
+                timeout=120
             )
             
             response.raise_for_status()
