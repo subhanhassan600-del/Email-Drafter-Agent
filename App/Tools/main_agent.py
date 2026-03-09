@@ -1,6 +1,6 @@
-from agent.intent_tool import IntentTool
-from agent.tone_tool import ToneTool
-from agent.email_tool import EmailTool
+from Tools.intent_tool import IntentTool
+from Tools.tone_tool import ToneTool
+from Tools.email_tool import EmailTool
 
 class EmailDrafterAgent:
     def __init__(self):

@@ -1,5 +1,5 @@
 venv/
-memory/
+memory/session_store.json
 __pycache__/
 
 *.pyc

@@ -1,4 +1,4 @@
-from agent.main_agent import EmailDrafterAgent
+from App.Tools.main_agent import EmailDrafterAgent
 from memory.session_manager import save_to_session
 
 agent = EmailDrafterAgent()
