@@ -1,6 +1,5 @@
-# Email Drafter Agent
-
-A web‑powered AI assistant that drafts professional emails for you based on a natural language description of your situation. While a minimal CLI entry point exists, the primary interaction is through a browser‑based dashboard. The system uses a lightweight tool architecture with separate components for intent extraction, tone analysis, and final email generation.
+# Multi-Agent Intelligence System
+This project is a Multi-Agent Intelligence System featuring two main agents: an Email Drafter that generates professional emails based on user input, and a Prompt Improver that refines and enhances user prompts for better AI interactions. It is a UI-based application built with FastAPI for the backend, WebSocket for real-time communication, and powered by Google ADK and requests for seamless integration with local LLMs like Ollama.
 
 The agents rely on a locally‑running Ollama `llama3` model (or another compatible LLM) via HTTP requests and the [Google ADK](https://pypi.org/project/google-adk) `BaseTool` as a helper class.
 
@@ -8,19 +7,24 @@ The agents rely on a locally‑running Ollama `llama3` model (or another compati
 
 ```
 email-drafter-agent/
-├── agent/                  # AI logic
-│   ├── __init__.py         # makes the folder a Python package
-│   ├── main_agent.py       # coordinator logic
-│   ├── intent_tool.py      # tool 1: extract situation/goal/emotion
-│   ├── tone_tool.py        # tool 2: classify tone
-│   └── email_tool.py       # tool 3: generate email JSON
-├── memory/                 # storage logic
+├── App/
+│   ├── Agents/
+│   │   ├── email_agent.py      # email drafting agent
+│   │   └── prompt_agent.py     # prompt refinement agent
+│   └── Tools/
+│       ├── base_tool.py        # base tool class
+│       ├── email_tool.py       # email generation tool
+│       ├── intent_tool.py      # intent extraction tool
+│       ├── main_agent.py       # main agent coordinator
+│       ├── refiner_tool.py     # prompt refinement tool
+│       └── tone_tool.py        # tone analysis tool
+├── memory/                     # storage logic
 │   ├── __init__.py
-│   ├── session_manager.py  # read/write logic for session store
-│   └── session_store.json  # data file holding previous emails
-├── main.py                 # FastAPI & WebSocket server
-├── index.html              # user interface (frontend)
-└── run.py                  # CLI testing (legacy/alternative interface)
+│   ├── session_manager.py      # read/write logic for session store
+│   └── session_store.json      # data file holding previous emails
+├── main.py                     # FastAPI & WebSocket server
+├── index.html                  # user interface (frontend)
+└── run.py                      # CLI testing (legacy/alternative interface)
 ```
 
 ## 🚀 Getting Started
@@ -63,6 +67,7 @@ email-drafter-agent/
 - Browser dashboard with textarea input and live results
 - Intent extraction (situation, emotion, goal)
 - Tone analysis (happy, sad, angry, etc.)
+- Prompt refinement for optimized AI queries
 - JSON‑formatted email output with subject, body, and closing
 - Session storage of past drafts
 - Modular tools for easy customization
@@ -78,24 +83,75 @@ email-drafter-agent/
 > Emails are also saved automatically to `memory/session_store.json` for later review.
 
 *(A CLI test mode is still possible with `python run.py`, but the browser dashboard is the main experience.)
+f
+
+### Email Drafter Example
+
+The Email Drafter agent generates professional emails based on user input, analyzing intent and tone.
+
+**Input:** "I need to request a day off tomorrow because I'm not feeling well."
+
+**Generated Email Output:**
+```json
+{
+  "subject": "Request for Sick Leave Tomorrow",
+  "body": "Dear [Manager's Name],\n\nI am writing to inform you that I am not feeling well and would like to request a day off tomorrow. I apologize for any inconvenience this may cause and will ensure that my responsibilities are covered.\n\nThank you for your understanding.\n\nBest regards,\n[Your Name]",
+  "closing": "Best regards,"
+}
+```
+
+### Prompt Improver Example
+
+The Prompt Improver agent refines raw user prompts into structured, professional prompts for better AI interactions.
+
+**Input:** "write email to boss for leave"
+
+**Refined Output:**
+```
+[ROLE]
+You are a professional email writer.
+
+[CONTEXT]
+The user needs to request leave from their boss.
+
+[TASK]
+Compose a formal email requesting time off, including reason and dates.
+
+[CONSTRAINTS]
+Keep the tone polite and professional; include subject, body, and closing.
+```
+
+This refined prompt can then be used to generate higher-quality emails.
 
 ## 📁 Session Memory
 
-Generated emails are automatically appended to `memory/session_store.json` so you can review past drafts. Each entry includes the original user query, a timestamp, and the `subject`/`body`/`closing` of the generated message.
+Generated emails and refined prompts are automatically appended to `memory/session_store.json` so you can review past drafts and improvements. Each entry includes the original user query, a timestamp, the agent type, and the result (email or prompt).
 
-This project includes a `session_manager.py` which handles appending generated emails to the JSON store; you can modify it to change how persistence works.
+This project includes a `session_manager.py` which handles appending generated content to the JSON store; you can modify it to change how persistence works.
 
-Example stored record:
+Example stored records:
 
+**Email Drafter Record:**
 ```json
 {
     "timestamp": "2026-03-02 02:31:26",
+    "agent_type": "email",
     "user_query": "I met a potential client, Sarah, at the conference yesterday...",
-    "generated_email": {
+    "result": {
         "subject": "Following Up on Our Conference Discussion",
         "body": "Dear Sarah, I wanted to take a moment to express my gratitude...",
         "closing": "Best regards,"
     }
+}
+```
+
+**Prompt Improver Record:**
+```json
+{
+    "timestamp": "2026-03-02 02:32:15",
+    "agent_type": "prompt",
+    "user_query": "write email to boss for leave",
+    "result": "[ROLE]\nYou are a professional email writer.\n\n[CONTEXT]\nThe user needs to request leave from their boss.\n\n[TASK]\nCompose a formal email requesting time off, including reason and dates.\n\n[CONSTRAINTS]\nKeep the tone polite and professional; include subject, body, and closing."
 }
 ```
 
