@@ -13,8 +13,8 @@ class BaseTool:
             "prompt": prompt,
             "stream": False,
             "options": {
-                "num_predict": 150,    # Token limit yahan lagegi
-                "temperature": 0.4     # AI ko zyada baatein karne se rokne ke liye
+                "num_predict": 150,
+                "temperature": 0.4
             }
         }
 
