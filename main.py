@@ -4,6 +4,7 @@ from App.Agents.email_agent import EmailDrafterAgent
 from App.Agents.prompt_agent import PromptImproverAgent
 from database import DatabaseManager
 import json
+import re
 
 app = FastAPI()
 
@@ -32,23 +33,39 @@ async def websocket_endpoint(websocket: WebSocket):
 
             user_text = data.get("text")
             selected_agent = data.get("agent")
-
+            
             # ---------------- EMAIL AGENT ----------------
             if selected_agent == "email":
                 # 1. AI se result lein
                 result = email_agent.run(user_text)
 
-                # 2. String vs Dictionary Check (Yahan error aa raha tha)
+                # 2. Cleanup & Parsing Logic
+                email_subject = "Project Update"
+                email_body = str(result)
+                email_closing = "Best regards"
+
                 if isinstance(result, dict):
-                    # Agar dictionary hai toh safely keys nikalen
-                    email_subject = result.get("subject", "Project Update")
+                    # Agar pehle hi dictionary hai toh asani se nikalen
+                    email_subject = result.get("subject", email_subject)
                     email_body = result.get("body", str(result))
-                    email_closing = result.get("closing", "Best regards")
-                else:
-                    # Agar result sirf ek string hai, toh pura result body mein dal den
-                    email_subject = "Project Update"
-                    email_body = str(result)
-                    email_closing = "Best regards"
+                    email_closing = result.get("closing", email_closing)
+                
+                elif isinstance(result, str):
+                    # AGAR STRING HAI: Toh Regex se JSON dhoondein
+                    try:
+                        # { } ke darmiyan wala saara data nikalna
+                        match = re.search(r'\{.*\}', result, re.DOTALL)
+                        if match:
+                            clean_json = json.loads(match.group())
+                            email_subject = clean_json.get("subject", email_subject)
+                            email_body = clean_json.get("body", clean_json.get("message", result))
+                            email_closing = clean_json.get("closing", email_closing)
+                        else:
+                            # Agar koi bracket nahi mila, toh pura text hi body hai
+                            email_body = result
+                    except Exception as e:
+                        print(f"Regex Parsing Error: {e}")
+                        email_body = result
 
                 # 3. Frontend ke liye response tayyar karein
                 response = {
@@ -58,7 +75,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     "closing": email_closing
                 }
 
-                # 4. Database mein save karein (Ab crash nahi hoga)
+                # 4. Database mein save karein
                 db.add_record(
                     prompt=user_text, 
                     intent="Email Drafting", 

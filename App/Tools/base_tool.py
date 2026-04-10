@@ -11,7 +11,11 @@ class BaseTool:
         payload = {
             "model": self.model,
             "prompt": prompt,
-            "stream": False
+            "stream": False,
+            "options": {
+                "num_predict": 150,    # Token limit yahan lagegi
+                "temperature": 0.4     # AI ko zyada baatein karne se rokne ke liye
+            }
         }
 
         try:
