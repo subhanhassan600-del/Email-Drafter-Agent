@@ -11,7 +11,11 @@ class BaseTool:
         payload = {
             "model": self.model,
             "prompt": prompt,
-            "stream": False
+            "stream": False,
+            "options": {
+                "num_predict": 150,
+                "temperature": 0.4
+            }
         }
 
         try:
