@@ -7,13 +7,13 @@ class BaseTool:
         self.url = "http://localhost:11434/api/generate"
         self.timeout = 200
 
-    def call_model(self, prompt):
+    def call_model(self, prompt, max_tokens=300):
         payload = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
             "options": {
-                "num_predict": 150,
+                "num_predict": max_tokens,
                 "temperature": 0.4
             }
         }

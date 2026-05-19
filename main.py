@@ -1,124 +1,101 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
-from App.Agents.email_agent import EmailDrafterAgent
-from App.Agents.prompt_agent import PromptImproverAgent
+from App.Tools.base_tool import BaseTool
 from database import DatabaseManager
 import json
-import re
 
 app = FastAPI()
 
-# Initialize Agents
-email_agent = EmailDrafterAgent()
-prompt_agent = PromptImproverAgent()
 db = DatabaseManager()
-
+base_tool = BaseTool()
 
 @app.get("/")
 async def get():
     return FileResponse("index.html")
 
+@app.get("/get_agents")
+async def get_agents():
+    return {"agents": db.fetch_all_agents()}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-
     await websocket.accept()
 
     try:
         while True:
-
-            # Receive message from frontend
             raw_payload = await websocket.receive_text()
             data = json.loads(raw_payload)
 
-            user_text = data.get("text")
-            selected_agent = data.get("agent")
-            
-            # ---------------- EMAIL AGENT ----------------
-            if selected_agent == "email":
-                # 1. AI se result lein
-                result = email_agent.run(user_text)
+            request_type = data.get("type") 
 
-                # 2. Cleanup & Parsing Logic
-                email_subject = "Project Update"
-                email_body = str(result)
-                email_closing = "Best regards"
-
-                if isinstance(result, dict):
-                    # Agar pehle hi dictionary hai toh asani se nikalen
-                    email_subject = result.get("subject", email_subject)
-                    email_body = result.get("body", str(result))
-                    email_closing = result.get("closing", email_closing)
+            # ---------------- 1. CREATE / UPDATE AGENT ----------------
+            if request_type == "create_agent":
+                agent_id = data.get("id")
+                agent_name = data.get("name")
+                system_instructions = data.get("prompt")
                 
-                elif isinstance(result, str):
-                    # AGAR STRING HAI: Toh Regex se JSON dhoondein
-                    try:
-                        # { } ke darmiyan wala saara data nikalna
-                        match = re.search(r'\{.*\}', result, re.DOTALL)
-                        if match:
-                            clean_json = json.loads(match.group())
-                            email_subject = clean_json.get("subject", email_subject)
-                            email_body = clean_json.get("body", clean_json.get("message", result))
-                            email_closing = clean_json.get("closing", email_closing)
-                        else:
-                            # Agar koi bracket nahi mila, toh pura text hi body hai
-                            email_body = result
-                    except Exception as e:
-                        print(f"Regex Parsing Error: {e}")
-                        email_body = result
-
-                # 3. Frontend ke liye response tayyar karein
-                response = {
-                    "agent": "email",
-                    "subject": email_subject,
-                    "body": email_body,
-                    "closing": email_closing
-                }
-
-                # 4. Database mein save karein
-                db.add_record(
-                    prompt=user_text, 
-                    intent="Email Drafting", 
-                    tone="Professional", 
-                    improved=email_body
-                )
-
-            # ---------------- PROMPT IMPROVER ----------------
-            elif selected_agent == "prompt":
-
-                result = prompt_agent.run(user_text)
-
-                # Convert result safely to string
-                if isinstance(result, dict):
-                    improved_prompt = result
+                if agent_id:
+                    db.update_agent(agent_id, agent_name, system_instructions)
+                    
+                    response = {
+                        "type": "agent_updated", 
+                        "id": agent_id,
+                        "name": agent_name
+                    }
                 else:
-                    improved_prompt = str(result)
+                    new_id = db.save_agent(agent_name, system_instructions)
+                    response = {
+                        "type": "agent_created",
+                        "id": new_id,
+                        "name": agent_name
+                    }
 
-                response = {
-                    "agent": "prompt",
-                    "improved_prompt": improved_prompt
-                }
-
-                # Agar improved_prompt dictionary hai toh sirf 'prompt' key nikaalein
-                if isinstance(improved_prompt, dict):
-                    clean_prompt = improved_prompt.get('prompt', str(improved_prompt))
+            # ---------------- 2. RUN AGENT ----------------
+            elif request_type == "run_agent":
+                selected_name = data.get("agent_name")
+                user_message = data.get("text")
+                
+                instructions = db.get_agent_prompt(selected_name)
+                
+                if instructions:
+                    full_prompt = f"SYSTEM: {instructions}\n\nUSER INPUT: {user_message}"
+                    ai_result = base_tool.call_model(full_prompt, max_tokens=400)
+                    if ai_result is None:
+                        response = {"type": "error", "message": "AI model unavailable. Make sure Ollama is running."}
+                    else:
+                        db.add_history(selected_name, user_message, ai_result)
+                        response = {
+                            "type": "ai_output",
+                            "agent": selected_name,
+                            "response": ai_result
+                        }
                 else:
-                    clean_prompt = str(improved_prompt)
+                    response = {"type": "error", "message": "Agent not found"}
 
-                db.add_record(
-                    prompt=user_text, 
-                    intent="Prompt Improvement", 
-                    tone="Optimized", 
-                    improved=clean_prompt
-                )
+            # ---------------- 3. GET AGENT DETAILS ----------------
+            elif request_type == "get_agent_details":
+                agent_id = data.get("agent_id")
+                agent_data = db.get_agent_details(agent_id) 
+                if agent_data:
+                    response = {
+                        "type": "agent_details",
+                        "id": agent_data["id"],
+                        "name": agent_data["name"],
+                        "prompt": agent_data["prompt"]
+                    }
+                else:
+                    response = {"type": "error", "message": "Agent details not found"}
 
-            # ---------------- INVALID AGENT ----------------
+            # ---------------- 4. DELETE AGENT ----------------
+            elif request_type == "delete_agent":
+                agent_id = data.get("agent_id") # Consistent with frontend
+                db.delete_agent(agent_id)
+                response = {"type": "agent_deleted", "id": agent_id}
+            
+            # ---------------- 5. INVALID TYPE ----------------
             else:
-                response = {
-                    "error": "Invalid Agent Type"
-                }
+                response = {"type": "error", "message": "Invalid request type"}
 
-            # Send response to frontend
             await websocket.send_text(json.dumps(response))
 
     except WebSocketDisconnect:
@@ -126,9 +103,4 @@ async def websocket_endpoint(websocket: WebSocket):
 
     except Exception as e:
         print(f"Server Error: {e}")
-
-        await websocket.send_text(
-            json.dumps({
-                "error": str(e)
-            })
-        )
+        await websocket.send_text(json.dumps({"type": "error", "message": str(e)}))
