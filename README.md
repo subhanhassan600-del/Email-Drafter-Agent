@@ -1,174 +1,114 @@
-# Multi-Agent Intelligence System
-This project is a Multi-Agent Intelligence System featuring two main agents: an Email Drafter that generates professional emails based on user input, and a Prompt Improver that refines and enhances user prompts for better AI interactions. It is a UI-based application built with FastAPI for the backend, WebSocket for real-time communication, and powered by Google ADK and requests for seamless integration with local LLMs like Ollama.
+# AgentHub
 
-The agents rely on a locally‑running Ollama `llama3` model (or another compatible LLM) via HTTP requests and the [Google ADK](https://pypi.org/project/google-adk) `BaseTool` as a helper class.
+A browser-based platform for creating, running, and managing custom AI agents. Define an agent with a system prompt, then chat with it — all in a clean web UI powered by a locally-running LLM.
 
-## 🛠️ Project Structure
+## Project Structure
 
 ```
 email-drafter-agent/
 ├── App/
-│   ├── Agents/
-│   │   ├── email_agent.py      # email drafting agent
-│   │   └── prompt_agent.py     # prompt refinement agent
 │   └── Tools/
-│       ├── base_tool.py        # base tool class
-│       ├── email_tool.py       # email generation tool
-│       ├── intent_tool.py      # intent extraction tool
-│       ├── main_agent.py       # main agent coordinator
-│       ├── refiner_tool.py     # prompt refinement tool
-│       └── tone_tool.py        # tone analysis tool
-├── memory/                     # storage logic
-│   ├── __init__.py
-│   ├── session_manager.py      # read/write logic for session store
-│   └── session_store.json      # data file holding previous emails
-├── main.py                     # FastAPI & WebSocket server
-├── index.html                  # user interface (frontend)
-└── run.py                      # CLI testing (legacy/alternative interface)
+│       └── base_tool.py    # HTTP wrapper for Ollama LLM calls
+├── database.py             # SQLite DatabaseManager (agents + history)
+├── main.py                 # FastAPI server & WebSocket handler
+├── index.html              # Single-file SPA (Tailwind CSS + marked.js)
+├── agent_builder.db        # SQLite database (auto-created on first run)
+└── requirements.txt
 ```
 
-## 🚀 Getting Started
+## Getting Started
 
-1. **Clone the repo** and create a virtual environment:
+**Prerequisites:** [Ollama](https://ollama.com) must be installed and running locally.
+
+1. Clone the repo and create a virtual environment:
 
    ```bash
    git clone <repo-url> email-drafter-agent
    cd email-drafter-agent
    python -m venv venv
-   source venv/bin/activate
+   source venv/bin/activate   # Windows: venv\Scripts\activate
    ```
 
-2. **Install the Python dependencies**:
+2. Install dependencies:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Run an Ollama model** on your machine (example):
+3. Pull and run the LLM model:
 
    ```bash
    ollama run llama3
    ```
 
-   Ensure the model is reachable at `http://localhost:11434/api/generate`.
+   Ollama must be reachable at `http://localhost:11434/api/generate`.
 
-4. **Start the web server**:
+4. Start the server:
 
    ```bash
    uvicorn main:app --reload
    ```
 
-   Visit `http://localhost:8000/` in your browser to access the UI and generate emails interactively.
+   Open `http://localhost:8000/` in your browser.
 
-> (A CLI mode is still available via `python run.py` for quick testing, but the web interface is the preferred workflow.)
+## Features
 
-## ✅ Features
+- Create custom agents with any system prompt
+- Edit and delete existing agents
+- Chat with any agent in real time over WebSocket
+- Conversation history persisted per agent in SQLite
+- Markdown rendering of AI responses
+- Responsive sidebar listing all your agents
 
-- Browser dashboard with textarea input and live results
-- Intent extraction (situation, emotion, goal)
-- Tone analysis (happy, sad, angry, etc.)
-- Prompt refinement for optimized AI queries
-- JSON‑formatted email output with subject, body, and closing
-- Session storage of past drafts
-- Modular tools for easy customization
+## How It Works
 
-## ✍️ Example
+**Request flow:**
+1. Browser connects over WebSocket (`/ws`)
+2. Frontend sends JSON with a `type` field
+3. `main.py` routes by type → calls `DatabaseManager` or `BaseTool`
+4. Response JSON is sent back over the same socket
 
-### Web UI Workflow
+**WebSocket message types:**
 
-1. Start the server (`uvicorn main:app --reload`) and open `http://localhost:8000/`.
-2. Type your situation in the textarea and click **Generate Professional Email**.
-3. The generated subject, body, and closing will appear instantly on the page; use the “Copy All” button to grab the full message.
+| Type | Description |
+|---|---|
+| `create_agent` | Create a new agent (no `id`) or update an existing one (with `id`) |
+| `run_agent` | Send a user message to an agent; gets AI response back |
+| `get_agent_details` | Fetch an agent's name and system prompt by ID |
+| `delete_agent` | Remove an agent and its full conversation history |
 
-> Emails are also saved automatically to `memory/session_store.json` for later review.
+There is also a REST endpoint `GET /get_agents` that returns all agents (used by the sidebar on page load).
 
-*(A CLI test mode is still possible with `python run.py`, but the browser dashboard is the main experience.)
-f
+**LLM layer** (`App/Tools/base_tool.py`):  
+`BaseTool` sends HTTP POST requests to a locally-running Ollama instance. Default model is `llama3`, temperature `0.4`, streaming disabled. To swap models, change the `model` arg in the `BaseTool()` constructor in `main.py`.
 
-### Email Drafter Example
+**Database** (`database.py`):  
+`DatabaseManager` wraps a single SQLite connection. Two tables:
+- `agents(id, name, system_prompt)`
+- `history(id, agent_name, user_message, ai_response, timestamp)`
 
-The Email Drafter agent generates professional emails based on user input, analyzing intent and tone.
+## Dependencies
 
-**Input:** "I need to request a day off tomorrow because I'm not feeling well."
+| Package | Version | Purpose |
+|---|---|---|
+| `fastapi` | 0.133.1 | Web framework & REST API |
+| `uvicorn` | 0.41.0 | ASGI server |
+| `websockets` | 15.0.1 | WebSocket support |
+| `requests` | 2.32.5 | HTTP calls to Ollama |
+| `google-adk` | 1.25.1 | Agent Development Kit |
 
-**Generated Email Output:**
-```json
-{
-  "subject": "Request for Sick Leave Tomorrow",
-  "body": "Dear [Manager's Name],\n\nI am writing to inform you that I am not feeling well and would like to request a day off tomorrow. I apologize for any inconvenience this may cause and will ensure that my responsibilities are covered.\n\nThank you for your understanding.\n\nBest regards,\n[Your Name]",
-  "closing": "Best regards,"
-}
-```
+## Customization
 
-### Prompt Improver Example
+- **Swap the LLM model:** Change `BaseTool(model="llama3")` in `main.py` to any model available in your Ollama installation (e.g. `mistral`, `gemma3`).
+- **Adjust temperature / token limit:** Edit the `options` dict in `base_tool.py` or the `max_tokens` arg passed from `main.py`.
 
-The Prompt Improver agent refines raw user prompts into structured, professional prompts for better AI interactions.
-
-**Input:** "write email to boss for leave"
-
-**Refined Output:**
-```
-[ROLE]
-You are a professional email writer.
-
-[CONTEXT]
-The user needs to request leave from their boss.
-
-[TASK]
-Compose a formal email requesting time off, including reason and dates.
-
-[CONSTRAINTS]
-Keep the tone polite and professional; include subject, body, and closing.
-```
-
-This refined prompt can then be used to generate higher-quality emails.
-
-## 📁 Session Memory
-
-Generated emails and refined prompts are automatically appended to `memory/session_store.json` so you can review past drafts and improvements. Each entry includes the original user query, a timestamp, the agent type, and the result (email or prompt).
-
-This project includes a `session_manager.py` which handles appending generated content to the JSON store; you can modify it to change how persistence works.
-
-Example stored records:
-
-**Email Drafter Record:**
-```json
-{
-    "timestamp": "2026-03-02 02:31:26",
-    "agent_type": "email",
-    "user_query": "I met a potential client, Sarah, at the conference yesterday...",
-    "result": {
-        "subject": "Following Up on Our Conference Discussion",
-        "body": "Dear Sarah, I wanted to take a moment to express my gratitude...",
-        "closing": "Best regards,"
-    }
-}
-```
-
-**Prompt Improver Record:**
-```json
-{
-    "timestamp": "2026-03-02 02:32:15",
-    "agent_type": "prompt",
-    "user_query": "write email to boss for leave",
-    "result": "[ROLE]\nYou are a professional email writer.\n\n[CONTEXT]\nThe user needs to request leave from their boss.\n\n[TASK]\nCompose a formal email requesting time off, including reason and dates.\n\n[CONSTRAINTS]\nKeep the tone polite and professional; include subject, body, and closing."
-}
-```
-
-## 🧩 Customization
-
-- Swap out the LLM endpoint or model in each tool by modifying the `requests.post` URL/parameters.
-- Add new tones/goals/situations as needed in the prompt templates.
-
-## 📝 Contributing
+## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes and add tests if applicable
-4. Submit a pull request
+2. Create a feature branch (`git checkout -b ft/your-feature`)
+3. Commit your changes
+4. Open a pull request
 
-## 📜 License
+## License
 
-MIT License – see `LICENSE` for details.
-
-> This project is a small demo and not intended for production use.
+MIT License — see `LICENSE` for details.
