@@ -8,7 +8,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * { font-family: 'Inter', sans-serif; }
         body { background: #0f0f13; min-height: 100vh; }
@@ -220,22 +219,53 @@
 </div>
 
 <script>
-    const ws = new WebSocket("ws://localhost:8000/ws");
+    let ws = null;
+    let wsReady = false;
+    let reconnectTimer = null;
     let editingAgentId = null;
     let currentAgent = null;
     let currentAgentId = null;
 
-    // ── WebSocket ──
-    ws.onopen = () => {
-        document.getElementById('statusText').innerText = "Connected";
-        document.getElementById('statusDot').className = "w-2 h-2 rounded-full bg-green-400 flex-shrink-0";
-    };
-    ws.onclose = () => {
-        document.getElementById('statusText').innerText = "Disconnected";
-        document.getElementById('statusDot').className = "w-2 h-2 rounded-full bg-red-400 flex-shrink-0";
-    };
+    function wsSend(payload) {
+        if (!wsReady) { showToast("Not connected — please wait.", "error"); return false; }
+        ws.send(JSON.stringify(payload));
+        return true;
+    }
 
-    window.onload = () => loadAgentsList();
+    function setConnected(connected) {
+        wsReady = connected;
+        document.getElementById('statusText').innerText = connected ? "Connected" : "Disconnected";
+        document.getElementById('statusDot').className =
+            `w-2 h-2 rounded-full flex-shrink-0 ${connected ? "bg-green-400" : "bg-red-400"}`;
+        const input = document.getElementById('userInput');
+        const btn   = document.getElementById('genBtn');
+        input.disabled = !connected;
+        btn.disabled   = !connected;
+        input.placeholder = connected ? "Type a message…" : "Reconnecting…";
+        btn.classList.toggle('opacity-40', !connected);
+        btn.classList.toggle('cursor-not-allowed', !connected);
+    }
+
+    function connect() {
+        ws = new WebSocket("ws://localhost:8000/ws");
+
+        ws.onopen = () => {
+            setConnected(true);
+            if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        };
+
+        ws.onclose = () => {
+            setConnected(false);
+            document.getElementById('loader').classList.add('hidden');
+            reconnectTimer = setTimeout(connect, 3000);
+        };
+
+        ws.onerror = () => ws.close();
+
+        ws.onmessage = handleMessage;
+    }
+
+    window.onload = () => { loadAgentsList(); connect(); };
 
     // ── Load agents ──
     async function loadAgentsList() {
@@ -275,19 +305,19 @@
     function deleteCurrentAgent() { if (currentAgentId && currentAgent) deleteAgent(currentAgentId, currentAgent); }
 
     function editAgent(id) {
-        ws.send(JSON.stringify({ type: "get_agent_details", agent_id: id }));
+        wsSend({ type: "get_agent_details", agent_id: id });
     }
 
     function saveAgent() {
         const name = document.getElementById('newAgentName').value.trim();
         const prompt = document.getElementById('newAgentPrompt').value.trim();
         if (!name || !prompt) { showToast("Please fill in all fields.", "error"); return; }
-        ws.send(JSON.stringify({ type: "create_agent", id: editingAgentId, name, prompt }));
-        editingAgentId = null;
+        if (wsSend({ type: "create_agent", id: editingAgentId, name, prompt })) editingAgentId = null;
     }
 
     function runAgent() {
         if (!currentAgent) { showToast("Select an agent first.", "error"); return; }
+        if (!wsReady) { showToast("Not connected — please wait.", "error"); return; }
         const text = document.getElementById('userInput').value.trim();
         if (!text) return;
 
@@ -297,11 +327,11 @@
         document.getElementById('loader').classList.remove('hidden');
         scrollToBottom();
 
-        ws.send(JSON.stringify({ type: "run_agent", agent_name: currentAgent, text }));
+        wsSend({ type: "run_agent", agent_id: currentAgentId, text });
     }
 
     // ── WS messages ──
-    ws.onmessage = (event) => {
+    function handleMessage(event) {
         const data = JSON.parse(event.data);
         ({
             "agent_created": () => {
@@ -334,7 +364,20 @@
             },
             "ai_output": () => {
                 document.getElementById('loader').classList.add('hidden');
-                appendMessage('ai', data.response);
+                appendMessage('ai', data.response, null, data.tokens);
+            },
+            "history_data": () => {
+                const msgs = data.messages;
+                if (msgs.length === 0) {
+                    appendSystemMsg(`Start chatting with <strong>${currentAgent}</strong>.`);
+                    return;
+                }
+                appendSystemMsg(`— Previous conversation (${msgs.length} message${msgs.length > 1 ? 's' : ''}) —`);
+                msgs.forEach(m => {
+                    appendMessage('user', m.user_message, m.timestamp);
+                    appendMessage('ai',   m.ai_response,  m.timestamp);
+                });
+                appendSystemMsg('— Now —');
             },
             "error": () => {
                 document.getElementById('loader').classList.add('hidden');
@@ -368,7 +411,7 @@
                 </button>
             </div>`;
         item.onclick = () => selectAgent(id, name);
-        nav.appendChild(item);
+        nav.insertBefore(item, nav.firstChild);
     }
 
     function selectAgent(id, name) {
@@ -384,29 +427,46 @@
         document.getElementById('loader').classList.add('hidden');
         showView('chatInterface');
 
-        appendSystemMsg(`You are now chatting with <strong>${name}</strong>. Send a message to begin.`);
+        // Load chat history for this agent
+        wsSend({ type: "get_history", agent_id: id });
     }
 
     // ── Messages ──
-    function appendMessage(role, content) {
+    function formatTime(ts) {
+        if (!ts) return '';
+        const d = new Date(ts.endsWith('Z') ? ts : ts + 'Z');
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function appendMessage(role, content, timestamp = null, tokens = null) {
         const container = document.getElementById('chatMessages');
         const wrap = document.createElement('div');
         wrap.className = `flex fade-in ${role === 'user' ? 'justify-end' : 'items-end space-x-2'}`;
+        const timeLabel = timestamp ? `<span class="text-[10px] text-white/50 mt-1 block text-right">${formatTime(timestamp)}</span>` : '';
 
         if (role === 'user') {
-            wrap.innerHTML = `<div class="user-bubble px-4 py-2.5 max-w-[72%] text-sm leading-relaxed">${escapeHtml(content)}</div>`;
+            wrap.innerHTML = `<div class="user-bubble px-4 py-2.5 max-w-[72%] text-sm leading-relaxed">${escapeHtml(content)}${timeLabel}</div>`;
         } else {
+            const tokenBadge = tokens
+                ? `<span class="inline-flex items-center space-x-1 text-[10px] text-gray-300 mt-2">
+                       <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                       <span title="prompt / completion / total">${tokens.prompt} in · ${tokens.completion} out · ${tokens.total} total</span>
+                   </span>`
+                : '';
             wrap.innerHTML = `
                 <div class="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0 self-start mt-0.5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
                 </div>
                 <div class="ai-bubble px-4 py-3 max-w-[72%] text-sm">
                     <div class="prose text-gray-700">${marked.parse(content)}</div>
-                    <button onclick="copyText(this)" data-text="${encodeURIComponent(content)}"
-                        class="mt-2 text-gray-300 hover:text-gray-500 text-[10px] flex items-center space-x-1 transition-colors">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
-                        <span>Copy</span>
-                    </button>
+                    <div class="flex items-center justify-between mt-2">
+                        <button onclick="copyText(this)" data-text="${encodeURIComponent(content)}"
+                            class="text-gray-300 hover:text-gray-500 text-[10px] flex items-center space-x-1 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                            <span>Copy</span>
+                        </button>
+                        ${tokenBadge}
+                    </div>
                 </div>`;
         }
         container.appendChild(wrap);
@@ -433,7 +493,7 @@
     // ── Delete ──
     function deleteAgent(id, name) {
         if (confirm(`Delete "${name}"? All conversation history will be removed.`)) {
-            ws.send(JSON.stringify({ type: "delete_agent", agent_id: id }));
+            wsSend({ type: "delete_agent", agent_id: id });
         }
     }
 
